@@ -3,10 +3,9 @@ package com.zcc;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.CharsetUtil;
-import org.testng.annotations.Test;
 
 import java.net.InetSocketAddress;
 
@@ -19,17 +18,19 @@ import java.net.InetSocketAddress;
 
 public class Netty {
 
+    public static void main(String[] args) {
+        start();
+    }
 
-    @Test
-    public void start(){
+    public static void start(){
         NioEventLoopGroup eventExecutors = new NioEventLoopGroup(1);
 //        eventExecutors.register()
         NioServerSocketChannel ser = new NioServerSocketChannel();
 
+        ChannelPipeline pipeline = ser.pipeline();
+        pipeline.addLast(new acceptHandler(eventExecutors, new initHandler()));
         eventExecutors.register(ser);
 
-        ChannelPipeline pipeline = ser.pipeline();
-        pipeline.addLast(new acceptHandler(eventExecutors, new readHandler()));
         ChannelFuture bind = ser.bind(new InetSocketAddress(9090));
         try {
             bind.sync().channel().closeFuture().sync();
@@ -39,10 +40,59 @@ public class Netty {
     }
 
     @ChannelHandler.Sharable
+    private static class initHandler extends ChannelInboundHandlerAdapter{
+
+        @Override
+        public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("init register");
+            Channel channel = ctx.channel();
+            ChannelPipeline pipeline = channel.pipeline();
+            pipeline.addLast(new readHandler());
+            pipeline.remove(this);
+            super.channelRegistered(ctx);
+        }
+
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            System.out.println("init read");
+            super.channelRead(ctx, msg);
+        }
+    }
+
+    private static class acceptHandler extends ChannelInboundHandlerAdapter {
+
+        NioEventLoopGroup selector = null;
+        ChannelHandler readHandler = null;
+
+        public acceptHandler(NioEventLoopGroup nioEventLoopGroup, ChannelHandler channelHandler) {
+            selector = nioEventLoopGroup;
+            readHandler = channelHandler;
+        }
+
+        @Override
+        public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("accept register.......");
+        }
+
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("accept active.........");
+        }
+
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            NioSocketChannel client = (NioSocketChannel) msg;
+            System.out.println("客户端登录" + client.remoteAddress());
+            ChannelPipeline pipeline = client.pipeline();
+            pipeline.addLast(readHandler);
+            selector.register(client);
+        }
+    }
+
     private static class readHandler extends ChannelInboundHandlerAdapter{
         @Override
         public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
-            System.out.println("read register.......");
+            System.out.println("read Register.......");
         }
 
         @Override
@@ -63,35 +113,4 @@ public class Netty {
             ctx.writeAndFlush(by);
         }
     }
-
-    private static class acceptHandler extends ChannelInboundHandlerAdapter {
-
-        NioEventLoopGroup selector = null;
-        readHandler readHandler = null;
-
-        public acceptHandler(NioEventLoopGroup nioEventLoopGroup, ChannelHandler channelHandler) {
-            selector = nioEventLoopGroup;
-            readHandler = (Netty.readHandler) channelHandler;
-        }
-
-//        @Override
-//        public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
-//            System.out.println("accept register.......");
-//        }
-//
-//        @Override
-//        public void channelActive(ChannelHandlerContext ctx) throws Exception {
-//            System.out.println("accept active.........");
-//        }
-
-        @Override
-        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-            SocketChannel client = (SocketChannel) msg;
-            System.out.println("客户端登录" + client.remoteAddress());
-            selector.register(client);
-            ChannelPipeline pipeline = client.pipeline();
-            pipeline.addLast(readHandler);
-        }
-    }
-
 }
